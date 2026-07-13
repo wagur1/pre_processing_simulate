@@ -77,7 +77,82 @@ $$L = \alpha \cdot (L_D + \lambda \cdot L_R) + L_{Acc}$$
 
 The model automatically saves checkpoints (`best_model.pt` and `final_model.pt`) into the `./checkpoints/` directory.
 
+## Kaggle Training (Online)
+
+Train directly on Kaggle with GPU using pre-uploaded datasets. No local downloads needed!
+
+### Quick Start
+
+1. **Create a new Kaggle Notebook** with GPU accelerator enabled
+2. **Add datasets** to your notebook:
+   - GOT-10k: [abhimanyukarshni/got10k](https://www.kaggle.com/datasets/abhimanyukarshni/got10k) (~70 GB, JPEG frames)
+   - Kinetics-400: [nikiforosvagenas/kinetics-400](https://www.kaggle.com/datasets/nikiforosvagenas/kinetics-400) (~3 MB, CSV metadata)
+3. **Clone and run**:
+
+```python
+# Cell 1: Clone the repo
+!git clone https://github.com/wagur1/pre_processing_simulate /kaggle/working/repo
+%cd /kaggle/working/repo
+
+# Cell 2: Train with GOT-10k (recommended — has actual video frames)
+!python train.py --dataset-mode kaggle_got10k --kaggle --epochs 50
+
+# OR: Train with Kinetics-400 CSV (synthetic clips for pipeline testing)
+!python train.py --dataset-mode kaggle_kinetics400 --kaggle --epochs 50
+```
+
+### Using the Kaggle Training Script
+
+For more control, use the dedicated `kaggle_train.py` script:
+
+```python
+# Cell 1: Clone the repo
+!git clone https://github.com/wagur1/pre_processing_simulate /kaggle/working/repo
+%cd /kaggle/working/repo
+
+# Cell 2: Run with auto-detection
+%run kaggle_train.py
+```
+
+Edit the `KaggleTrainConfig` class in `kaggle_train.py` to customize hyperparameters.
+
+### Kaggle Dataset Modes
+
+| Mode | Flag | Description |
+|------|------|-------------|
+| `kaggle_got10k` | `--dataset-mode kaggle_got10k` | GOT-10k JPEG frames from `/kaggle/input/got10k/` |
+| `kaggle_kinetics400` | `--dataset-mode kaggle_kinetics400` | Kinetics-400 from `/kaggle/input/kinetics-400/` |
+
+### Kaggle-Specific Options
+
+```bash
+python train.py \
+  --dataset-mode kaggle_got10k \
+  --kaggle \                           # Auto-configure for Kaggle env
+  --kaggle-got10k-slug got10k \        # Dataset slug (default: got10k)
+  --kaggle-kinetics400-slug kinetics-400 \
+  --max-samples 500 \                  # Limit samples for quick testing
+  --batch-size 4 \
+  --epochs 50
+```
+
+> **Note:** The `--kaggle` flag automatically:
+> - Sets `--save-dir` to `/kaggle/working/checkpoints`
+> - Limits `--num-workers` to 2 (Kaggle CPU limit)
+> - Auto-detects dataset paths from `/kaggle/input/`
+
+### About the Kinetics-400 CSV Dataset
+
+The `nikiforosvagenas/kinetics-400` Kaggle dataset contains **only a CSV metadata file** (YouTube IDs, labels), not actual video files. When using this dataset:
+- The pipeline generates **synthetic placeholder clips** for each class to validate the training architecture
+- For real training with actual videos, either:
+  - Use GOT-10k mode (recommended)
+  - Use the original HuggingFace mode (`--dataset-mode kinetics400`)
+  - Upload your own video dataset to Kaggle
+
 ## File Structure
-- `dataset.py`: Contains the `VideoFrameDataset`, `HFKinetics400Dataset`, and `GOT10kDataset` classes.
+- `dataset.py`: Dataset classes — `HFKinetics400Dataset`, `GOT10kDataset`, `KaggleKinetics400Dataset`, `CSVKinetics400Dataset`, and builder functions.
 - `model.py`: Contains the `Preprocessor`, `VirtualCodec`, and `PreprocessingSystem` classes.
-- `train.py`: Contains the training loop, validation logic, and early stopping mechanism.
+- `train.py`: Training loop, validation, early stopping. Supports local and Kaggle modes.
+- `kaggle_config.py`: Kaggle environment detection, dataset path utilities, and configuration.
+- `kaggle_train.py`: Ready-to-use Kaggle notebook training script with auto-detection.

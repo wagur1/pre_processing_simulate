@@ -30,8 +30,14 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from dataset import build_kinetics400_splits, build_got10k_train_test
+from dataset import (
+    build_kinetics400_splits,
+    build_got10k_train_test,
+    build_kaggle_kinetics400_splits,
+    build_kaggle_got10k_train_test,
+)
 from model import PreprocessingSystem
+from kaggle_config import is_kaggle, get_kaggle_save_dir
 
 
 # ======================================================================== #
@@ -324,9 +330,12 @@ def main():
     parser.add_argument(
         "--dataset-mode",
         type=str,
-        choices=["kinetics400", "got10k"],
+        choices=["kinetics400", "got10k", "kaggle_kinetics400", "kaggle_got10k"],
         default="kinetics400",
-        help="Dataset source: 'kinetics400' (HuggingFace) or 'got10k' (local folders)",
+        help=(
+            "Dataset source: 'kinetics400' (HuggingFace), 'got10k' (local folders), "
+            "'kaggle_kinetics400' (Kaggle dataset), 'kaggle_got10k' (Kaggle dataset)"
+        ),
     )
     parser.add_argument(
         "--train-dir",
@@ -345,6 +354,34 @@ def main():
         type=str,
         default="validation",
         help="HuggingFace split name for kinetics400 mode (default: 'validation')",
+    )
+    # ---- Kaggle-specific ----
+    parser.add_argument(
+        "--kaggle",
+        action="store_true",
+        default=False,
+        help=(
+            "Enable Kaggle mode: auto-detect dataset paths from /kaggle/input/, "
+            "save checkpoints to /kaggle/working/checkpoints, use 2 workers"
+        ),
+    )
+    parser.add_argument(
+        "--kaggle-got10k-slug",
+        type=str,
+        default="got10k",
+        help="Kaggle dataset slug for GOT-10k (default: 'got10k')",
+    )
+    parser.add_argument(
+        "--kaggle-kinetics400-slug",
+        type=str,
+        default="kinetics-400",
+        help="Kaggle dataset slug for Kinetics-400 (default: 'kinetics-400')",
+    )
+    parser.add_argument(
+        "--max-samples",
+        type=int,
+        default=None,
+        help="Limit number of dataset samples (useful for quick testing)",
     )
     # ---- Training hyperparameters ----
     parser.add_argument("--num-frames", type=int, default=8,
@@ -371,6 +408,22 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
 
     args = parser.parse_args()
+
+    # ---- Kaggle auto-configuration ----
+    if args.kaggle or is_kaggle():
+        print("[INFO] Kaggle environment detected — applying Kaggle defaults")
+        if args.save_dir == "./checkpoints":
+            args.save_dir = get_kaggle_save_dir()
+        if args.num_workers > 2:
+            args.num_workers = 2
+            print("[INFO] Reduced num_workers to 2 for Kaggle")
+        # Auto-select Kaggle dataset mode if generic mode was chosen
+        if args.dataset_mode == "kinetics400":
+            args.dataset_mode = "kaggle_kinetics400"
+            print("[INFO] Switched to kaggle_kinetics400 mode")
+        elif args.dataset_mode == "got10k":
+            args.dataset_mode = "kaggle_got10k"
+            print("[INFO] Switched to kaggle_got10k mode")
 
     # ---- Reproducibility ----
     torch.manual_seed(args.seed)
@@ -406,6 +459,29 @@ def main():
             num_frames=args.num_frames,
             frame_stride=args.frame_stride,
             frame_size=frame_size,
+        )
+
+    elif args.dataset_mode == "kaggle_got10k":
+        # Load GOT-10k from Kaggle dataset
+        print(f"[INFO] Mode: kaggle_got10k (slug='{args.kaggle_got10k_slug}')")
+        train_dataset, test_dataset, num_classes = build_kaggle_got10k_train_test(
+            kaggle_slug=args.kaggle_got10k_slug,
+            num_frames=args.num_frames,
+            frame_stride=args.frame_stride,
+            frame_size=frame_size,
+        )
+
+    elif args.dataset_mode == "kaggle_kinetics400":
+        # Load Kinetics-400 from Kaggle dataset
+        print(f"[INFO] Mode: kaggle_kinetics400 (slug='{args.kaggle_kinetics400_slug}')")
+        train_dataset, test_dataset, num_classes = build_kaggle_kinetics400_splits(
+            kaggle_slug=args.kaggle_kinetics400_slug,
+            num_frames=args.num_frames,
+            frame_stride=args.frame_stride,
+            frame_size=frame_size,
+            train_ratio=0.8,
+            seed=args.seed,
+            max_samples=args.max_samples,
         )
 
     print(f"[INFO] Train samples: {len(train_dataset)}, Test samples: {len(test_dataset)}")
