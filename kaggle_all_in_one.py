@@ -40,12 +40,29 @@ def is_kaggle():
     return os.path.isdir(KAGGLE_INPUT)
 
 
+def _find_dataset_base(slug: str) -> str:
+    direct_path = os.path.join(KAGGLE_INPUT, slug)
+    if os.path.isdir(direct_path):
+        return direct_path
+    datasets_path = os.path.join(KAGGLE_INPUT, "datasets", slug)
+    if os.path.isdir(datasets_path):
+        return datasets_path
+    for d in os.listdir(KAGGLE_INPUT):
+        candidate = os.path.join(KAGGLE_INPUT, d, slug)
+        if os.path.isdir(candidate):
+            return candidate
+    return direct_path
+
+
 def get_got10k_paths(slug=None):
     if slug is None:
         slug = KAGGLE_DATASET_SLUGS["got10k"]
-    base = os.path.join(KAGGLE_INPUT, slug)
+    base = _find_dataset_base(slug)
     if not os.path.isdir(base):
-        raise RuntimeError(f"GOT-10k not found at {base}")
+        raise RuntimeError(
+            f"GOT-10k not found at {base}. "
+            f"Contents of /kaggle/input: {os.listdir(KAGGLE_INPUT) if os.path.exists(KAGGLE_INPUT) else 'N/A'}"
+        )
 
     # Flat layout
     if os.path.isdir(os.path.join(base, "val")):
@@ -75,7 +92,7 @@ def get_got10k_paths(slug=None):
 def get_kinetics400_csv_path(slug=None):
     if slug is None:
         slug = KAGGLE_DATASET_SLUGS["kinetics400"]
-    base = os.path.join(KAGGLE_INPUT, slug)
+    base = _find_dataset_base(slug)
     if not os.path.isdir(base):
         raise RuntimeError(f"Kinetics-400 not found at {base}")
     csv_files = glob.glob(os.path.join(base, "**", "*.csv"), recursive=True)
@@ -87,7 +104,7 @@ def get_kinetics400_csv_path(slug=None):
 def get_kinetics400_video_dir(slug=None):
     if slug is None:
         slug = KAGGLE_DATASET_SLUGS["kinetics400"]
-    base = os.path.join(KAGGLE_INPUT, slug)
+    base = _find_dataset_base(slug)
     if not os.path.isdir(base):
         return None
     mp4_files = glob.glob(os.path.join(base, "**", "*.mp4"), recursive=True)
@@ -99,7 +116,7 @@ def get_kinetics400_video_dir(slug=None):
 def detect_kinetics400_format(slug=None):
     if slug is None:
         slug = KAGGLE_DATASET_SLUGS["kinetics400"]
-    base = os.path.join(KAGGLE_INPUT, slug)
+    base = _find_dataset_base(slug)
     if not os.path.isdir(base):
         return "not_found"
     if get_kinetics400_video_dir(slug) is not None:

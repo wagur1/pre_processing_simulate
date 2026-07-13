@@ -26,7 +26,7 @@ KAGGLE_DATASET_SLUGS: dict[str, str] = {
 
 
 # ---------------------------------------------------------------------------
-# Environment detection
+# Environment detection & path resolution
 # ---------------------------------------------------------------------------
 
 def is_kaggle() -> bool:
@@ -36,6 +36,33 @@ def is_kaggle() -> bool:
         True if the ``/kaggle/input`` directory exists, False otherwise.
     """
     return os.path.isdir(KAGGLE_INPUT)
+
+
+def _find_dataset_base(slug: str) -> str:
+    """Find the base directory for a dataset slug.
+    
+    Kaggle sometimes mounts datasets directly at /kaggle/input/{slug},
+    but sometimes nests them under /kaggle/input/datasets/{slug} or similar.
+    """
+    # 1. Check direct mount
+    direct_path = os.path.join(KAGGLE_INPUT, slug)
+    if os.path.isdir(direct_path):
+        return direct_path
+        
+    # 2. Check under 'datasets'
+    datasets_path = os.path.join(KAGGLE_INPUT, "datasets", slug)
+    if os.path.isdir(datasets_path):
+        return datasets_path
+        
+    # 3. Search one level deep
+    for d in os.listdir(KAGGLE_INPUT):
+        candidate = os.path.join(KAGGLE_INPUT, d, slug)
+        if os.path.isdir(candidate):
+            return candidate
+            
+    # If not found, return the direct path anyway so the caller's 
+    # error message shows the expected path
+    return direct_path
 
 
 # ---------------------------------------------------------------------------
@@ -75,13 +102,14 @@ def get_got10k_paths(
     if slug is None:
         slug = KAGGLE_DATASET_SLUGS["got10k"]
 
-    base: str = os.path.join(KAGGLE_INPUT, slug)
+    base: str = _find_dataset_base(slug)
 
     if not os.path.isdir(base):
         raise RuntimeError(
             f"GOT-10k base directory not found: {base}\n"
             f"Make sure the dataset is attached to your Kaggle notebook "
-            f"with slug '{slug}'."
+            f"with slug '{slug}'.\n"
+            f"Contents of /kaggle/input: {os.listdir(KAGGLE_INPUT) if os.path.exists(KAGGLE_INPUT) else 'N/A'}"
         )
 
     # Strategy 1: flat layout  <base>/val
@@ -149,7 +177,7 @@ def get_kinetics400_csv_path(
     if slug is None:
         slug = KAGGLE_DATASET_SLUGS["kinetics400"]
 
-    base: str = os.path.join(KAGGLE_INPUT, slug)
+    base: str = _find_dataset_base(slug)
 
     if not os.path.isdir(base):
         raise RuntimeError(
@@ -188,7 +216,7 @@ def get_kinetics400_video_dir(
     if slug is None:
         slug = KAGGLE_DATASET_SLUGS["kinetics400"]
 
-    base: str = os.path.join(KAGGLE_INPUT, slug)
+    base: str = _find_dataset_base(slug)
 
     if not os.path.isdir(base):
         return None
@@ -220,7 +248,7 @@ def detect_kinetics400_format(
     if slug is None:
         slug = KAGGLE_DATASET_SLUGS["kinetics400"]
 
-    base: str = os.path.join(KAGGLE_INPUT, slug)
+    base: str = _find_dataset_base(slug)
 
     if not os.path.isdir(base):
         return "not_found"
