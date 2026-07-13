@@ -707,7 +707,9 @@ class KaggleKinetics400Dataset(Dataset):
         video_path, label = self.samples[idx]
         frames = self._decode_video(video_path)
         if frames is None:
-            frames = torch.zeros(self.num_frames, 3, self.frame_size[0], self.frame_size[1])
+            # If video is corrupt (e.g. moov atom not found), try another one randomly
+            import random
+            return self.__getitem__(random.randint(0, len(self.samples) - 1))
         frames = self._apply_transforms(frames)
         return frames, label
 
@@ -983,17 +985,21 @@ class CSVKinetics400Dataset(Dataset):
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
         sample = self.samples[idx]
-        label_idx = sample["label_idx"]
+        label = sample["label_idx"]
 
-        # Try loading real video first
         frames = self._try_load_video(sample)
-
         if frames is None:
-            # Fall back to synthetic data
-            frames = self._generate_synthetic_clip(label_idx)
+            if self.video_dir is not None:
+                # If we tried to load a real video and failed (corrupt/missing), 
+                # grab a different random sample instead of failing
+                import random
+                return self.__getitem__(random.randint(0, len(self.samples) - 1))
+            else:
+                # Synthetic fallback for pipeline validation
+                frames = self._generate_synthetic_clip(label)
 
         frames = self._apply_transforms(frames)
-        return frames, label_idx
+        return frames, label
 
     def _apply_transforms(self, frames: torch.Tensor) -> torch.Tensor:
         """Apply spatial transforms consistently across all frames."""

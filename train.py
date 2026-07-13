@@ -26,6 +26,8 @@ import os
 import time
 from typing import Optional
 
+os.environ["OPENCV_LOG_LEVEL"] = "SILENT"
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
