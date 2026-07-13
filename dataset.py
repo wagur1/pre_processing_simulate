@@ -913,12 +913,12 @@ class CSVKinetics400Dataset(Dataset):
         if not yt_id:
             return None
 
-        # Try common filename patterns
+        # Try common filename patterns (search recursively to handle subfolders like k400/)
         patterns = [
             f"{yt_id}*.mp4", f"{yt_id}*.avi", f"{yt_id}*.mkv",
         ]
         for pattern in patterns:
-            matches = glob.glob(os.path.join(self.video_dir, pattern))
+            matches = glob.glob(os.path.join(self.video_dir, "**", pattern), recursive=True)
             if matches:
                 cap = cv2.VideoCapture(matches[0])
                 if cap.isOpened():
@@ -1262,9 +1262,6 @@ def build_kaggle_kinetics400_splits(
     elif csv_path is not None:
         # Format: CSV metadata file
         print(f"[INFO] Detected CSV metadata format at: {csv_path}")
-        print(f"[WARN] No video files found — using synthetic clips for "
-              f"pipeline validation. For real training, use a dataset "
-              f"with actual video files.")
         base_ds = CSVKinetics400Dataset(
             csv_path,
             split=split,
@@ -1272,8 +1269,16 @@ def build_kaggle_kinetics400_splits(
             frame_stride=frame_stride,
             frame_size=frame_size,
             augment=False,
+            video_dir=base_path,
             max_samples=max_samples,
         )
+        
+        # Verify if it actually found real videos
+        found_videos = sum(1 for _ in range(min(5, len(base_ds))) if base_ds._try_load_video(base_ds.samples[_]) is not None)
+        if found_videos == 0:
+            print(f"[WARN] No real video files found in {base_path} for the parsed CSV entries — using synthetic clips for pipeline validation.")
+        else:
+            print(f"[INFO] Successfully matched real video files from {base_path} to CSV entries.")
     else:
         raise RuntimeError(
             f"Could not detect Kinetics-400 data format in '{base_path}'. "
