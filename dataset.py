@@ -995,6 +995,25 @@ class CSVKinetics400Dataset(Dataset):
 #            Kaggle High-Level Builder Functions                            #
 # ======================================================================== #
 
+def _find_dataset_base(slug: str) -> str:
+    """Find the base directory for a dataset slug, handling nested Kaggle mounts."""
+    kaggle_input = "/kaggle/input"
+    direct_path = os.path.join(kaggle_input, slug)
+    if os.path.isdir(direct_path):
+        return direct_path
+        
+    datasets_path = os.path.join(kaggle_input, "datasets", slug)
+    if os.path.isdir(datasets_path):
+        return datasets_path
+        
+    if os.path.isdir(kaggle_input):
+        for d in os.listdir(kaggle_input):
+            candidate = os.path.join(kaggle_input, d, slug)
+            if os.path.isdir(candidate):
+                return candidate
+    return direct_path
+
+
 def _find_got10k_subdir(base_path: str, target: str) -> Optional[str]:
     """Auto-detect GOT-10k subdirectory, handling nested folder structures.
 
@@ -1052,13 +1071,15 @@ def build_kaggle_got10k_train_test(
     -------
     train_ds, test_ds, num_classes
     """
-    base_path = f"/kaggle/input/{kaggle_slug}"
+    base_path = _find_dataset_base(kaggle_slug)
 
     if not os.path.isdir(base_path):
+        kaggle_input = "/kaggle/input"
+        contents = os.listdir(kaggle_input) if os.path.exists(kaggle_input) else "N/A"
         raise RuntimeError(
-            f"Kaggle dataset not found at '{base_path}'. "
-            f"Make sure you've added the dataset '{kaggle_slug}' "
-            f"to your Kaggle notebook."
+            f"Kaggle dataset not found at '{base_path}'.\n"
+            f"Make sure you've added the dataset '{kaggle_slug}' to your Kaggle notebook.\n"
+            f"Contents of /kaggle/input: {contents}"
         )
 
     train_dir = _find_got10k_subdir(base_path, train_split)
@@ -1151,13 +1172,15 @@ def build_kaggle_kinetics400_splits(
     -------
     train_subset, test_subset, num_classes
     """
-    base_path = f"/kaggle/input/{kaggle_slug}"
+    base_path = _find_dataset_base(kaggle_slug)
 
     if not os.path.isdir(base_path):
+        kaggle_input = "/kaggle/input"
+        contents = os.listdir(kaggle_input) if os.path.exists(kaggle_input) else "N/A"
         raise RuntimeError(
-            f"Kaggle dataset not found at '{base_path}'. "
-            f"Make sure you've added the dataset '{kaggle_slug}' "
-            f"to your Kaggle notebook."
+            f"Kaggle dataset not found at '{base_path}'.\n"
+            f"Make sure you've added the dataset '{kaggle_slug}' to your Kaggle notebook.\n"
+            f"Contents of /kaggle/input: {contents}"
         )
 
     # ---- Auto-detect format ----
