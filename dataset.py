@@ -1135,12 +1135,26 @@ def build_kaggle_got10k_train_test(
 
 
 def _find_csv_file(base_path: str) -> Optional[str]:
-    """Find a CSV file in the given directory (recursive)."""
+    """Find a CSV file in the given directory (recursive), prioritizing train/val."""
+    found_csvs = []
     for root, dirs, files in os.walk(base_path):
-        for f in sorted(files):
+        for f in files:
             if f.lower().endswith(".csv"):
-                return os.path.join(root, f)
-    return None
+                found_csvs.append(os.path.join(root, f))
+                
+    if not found_csvs:
+        return None
+        
+    # Prioritize train/val over test (test often lacks labels)
+    for csv_path in found_csvs:
+        if "train" in os.path.basename(csv_path).lower():
+            return csv_path
+    for csv_path in found_csvs:
+        if "val" in os.path.basename(csv_path).lower():
+            return csv_path
+            
+    # Fallback to the first one found
+    return found_csvs[0]
 
 
 def _find_video_folder(base_path: str) -> Optional[str]:
