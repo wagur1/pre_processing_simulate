@@ -20,8 +20,8 @@ KAGGLE_INPUT: str = "/kaggle/input"
 KAGGLE_WORKING: str = "/kaggle/working"
 
 KAGGLE_DATASET_SLUGS: dict[str, str] = {
-    "got10k": "got10k",            # abhimanyukarshni/got10k
-    "kinetics400": "kinetics-400",  # nikiforosvagenas/kinetics-400
+    "got10k": "got10k",
+    "kinetics400": "kinetics-train-5per",
 }
 
 

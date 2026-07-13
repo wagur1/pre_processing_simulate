@@ -32,7 +32,7 @@ KAGGLE_WORKING = "/kaggle/working"
 
 KAGGLE_DATASET_SLUGS = {
     "got10k": "got10k",
-    "kinetics400": "kinetics-400",
+    "kinetics400": "kinetics-train-5per",
 }
 
 

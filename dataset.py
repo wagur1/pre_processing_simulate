@@ -1185,23 +1185,15 @@ def _find_csv_file(base_path: str) -> Optional[str]:
 
 def _find_video_folder(base_path: str) -> Optional[str]:
     """Find a directory containing class-organized video files."""
-    video_exts = {".mp4", ".avi", ".mkv", ".mov", ".webm"}
+    video_exts = (".mp4", ".avi", ".mkv", ".mov", ".webm")
 
-    # Check if base_path itself has class subdirs with videos
-    for entry in os.listdir(base_path):
-        entry_path = os.path.join(base_path, entry)
-        if os.path.isdir(entry_path):
-            # Check if this subdir contains video files
-            for f in os.listdir(entry_path):
-                if os.path.splitext(f)[1].lower() in video_exts:
-                    return base_path
-            # Check one level deeper (e.g., base/train/{class}/*.mp4)
-            for sub_entry in os.listdir(entry_path):
-                sub_path = os.path.join(entry_path, sub_entry)
-                if os.path.isdir(sub_path):
-                    for f in os.listdir(sub_path):
-                        if os.path.splitext(f)[1].lower() in video_exts:
-                            return entry_path
+    # Use recursive walk to find the first matching video file
+    for root, _, files in os.walk(base_path):
+        for f in files:
+            if f.lower().endswith(video_exts):
+                # Assumes structure: root / class_name / video.mp4
+                # So os.path.dirname(root) is the directory containing class folders
+                return os.path.dirname(root)
     return None
 
 
