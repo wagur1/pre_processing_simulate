@@ -827,6 +827,32 @@ class CSVKinetics400Dataset(Dataset):
         self, csv_path: str, split: Optional[str], max_samples: Optional[int]
     ) -> None:
         """Parse the CSV file and populate self.samples."""
+        
+        # Fast path for headerless, space-delimited "path label" mapping files
+        # (often found in Kaggle as custom uploaded .csv files)
+        with open(csv_path, "r", encoding="utf-8") as f:
+            first_line = f.readline().strip()
+            if " " in first_line and "youtube_id" not in first_line.lower() and "label" not in first_line.lower():
+                f.seek(0)
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    parts = line.rsplit(maxsplit=1)
+                    if len(parts) == 2:
+                        path, label = parts
+                        self.samples.append({
+                            "youtube_id": os.path.splitext(os.path.basename(path))[0],
+                            "label": label.strip(),
+                            "time_start": 0,
+                            "time_end": 10,
+                            "split": split or "train"
+                        })
+                        if max_samples and len(self.samples) >= max_samples:
+                            break
+                return
+                
+        # Standard parsing logic for actual CSVs with headers
         with open(csv_path, "r", encoding="utf-8") as f:
             # Auto-detect dialect
             sample = f.read(4096)
