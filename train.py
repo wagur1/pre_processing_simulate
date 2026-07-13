@@ -374,8 +374,8 @@ def main():
     parser.add_argument(
         "--kaggle-kinetics400-slug",
         type=str,
-        default="kinetics-400",
-        help="Kaggle dataset slug for Kinetics-400 (default: 'kinetics-400')",
+        default="kinetics-train-5per",
+        help="Kaggle dataset slug for Kinetics-400 (default: 'kinetics-train-5per')",
     )
     parser.add_argument(
         "--max-samples",
