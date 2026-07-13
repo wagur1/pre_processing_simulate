@@ -996,22 +996,45 @@ class CSVKinetics400Dataset(Dataset):
 # ======================================================================== #
 
 def _find_dataset_base(slug: str) -> str:
-    """Find the base directory for a dataset slug, handling nested Kaggle mounts."""
+    """Find the base directory for a dataset slug, handling nested Kaggle mounts up to 3 levels deep."""
     kaggle_input = "/kaggle/input"
     direct_path = os.path.join(kaggle_input, slug)
     if os.path.isdir(direct_path):
         return direct_path
         
-    datasets_path = os.path.join(kaggle_input, "datasets", slug)
-    if os.path.isdir(datasets_path):
-        return datasets_path
-        
     if os.path.isdir(kaggle_input):
-        for d in os.listdir(kaggle_input):
-            candidate = os.path.join(kaggle_input, d, slug)
-            if os.path.isdir(candidate):
-                return candidate
+        for d1 in os.listdir(kaggle_input):
+            p1 = os.path.join(kaggle_input, d1)
+            if not os.path.isdir(p1): continue
+            if d1 == slug: return p1
+            
+            for d2 in os.listdir(p1):
+                p2 = os.path.join(p1, d2)
+                if not os.path.isdir(p2): continue
+                if d2 == slug: return p2
+                
+                for d3 in os.listdir(p2):
+                    p3 = os.path.join(p2, d3)
+                    if not os.path.isdir(p3): continue
+                    if d3 == slug: return p3
+
     return direct_path
+
+
+def _get_kaggle_input_tree() -> str:
+    """Return a string representation of the /kaggle/input directory tree up to 2 levels deep."""
+    tree = []
+    if os.path.exists("/kaggle/input"):
+        for d1 in os.listdir("/kaggle/input"):
+            tree.append(f"/{d1}")
+            p1 = os.path.join("/kaggle/input", d1)
+            if os.path.isdir(p1):
+                try:
+                    for d2 in os.listdir(p1):
+                        tree.append(f"  /{d1}/{d2}")
+                except OSError:
+                    pass
+    return "\n".join(tree) if tree else "Empty or not found"
 
 
 def _find_got10k_subdir(base_path: str, target: str) -> Optional[str]:
@@ -1074,12 +1097,11 @@ def build_kaggle_got10k_train_test(
     base_path = _find_dataset_base(kaggle_slug)
 
     if not os.path.isdir(base_path):
-        kaggle_input = "/kaggle/input"
-        contents = os.listdir(kaggle_input) if os.path.exists(kaggle_input) else "N/A"
+        tree = _get_kaggle_input_tree()
         raise RuntimeError(
             f"Kaggle dataset not found at '{base_path}'.\n"
             f"Make sure you've added the dataset '{kaggle_slug}' to your Kaggle notebook.\n"
-            f"Contents of /kaggle/input: {contents}"
+            f"Directory structure of /kaggle/input:\n{tree}"
         )
 
     train_dir = _find_got10k_subdir(base_path, train_split)
@@ -1175,12 +1197,11 @@ def build_kaggle_kinetics400_splits(
     base_path = _find_dataset_base(kaggle_slug)
 
     if not os.path.isdir(base_path):
-        kaggle_input = "/kaggle/input"
-        contents = os.listdir(kaggle_input) if os.path.exists(kaggle_input) else "N/A"
+        tree = _get_kaggle_input_tree()
         raise RuntimeError(
             f"Kaggle dataset not found at '{base_path}'.\n"
             f"Make sure you've added the dataset '{kaggle_slug}' to your Kaggle notebook.\n"
-            f"Contents of /kaggle/input: {contents}"
+            f"Directory structure of /kaggle/input:\n{tree}"
         )
 
     # ---- Auto-detect format ----
