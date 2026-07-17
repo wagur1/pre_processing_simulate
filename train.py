@@ -408,6 +408,16 @@ def main():
     parser.add_argument("--analyzer-weights", type=str, default=None,
                         help="Optional path to custom analyzer checkpoint")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        help=(
+            "Path to a checkpoint file (best_model.pt) to resume training from. "
+            "On Kaggle, can also be a dataset slug (e.g., 'best-model') and the "
+            "script will search /kaggle/input/ for the .pt file automatically."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -528,6 +538,40 @@ def main():
     print(f"[INFO] Adam optimizer — lr={args.lr}, "
           f"trainable params: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
 
+    # ---- Resume from checkpoint ----
+    start_epoch = 1
+    resume_path = args.resume
+
+    # Auto-find checkpoint on Kaggle if a slug or filename is given
+    if resume_path and not os.path.isfile(resume_path):
+        # Search /kaggle/input/ recursively for the .pt file
+        kaggle_input = "/kaggle/input"
+        if os.path.isdir(kaggle_input):
+            import glob
+            # Try exact path first, then search recursively
+            candidates = glob.glob(os.path.join(kaggle_input, "**", "*.pt"), recursive=True)
+            if not candidates:
+                candidates = glob.glob(os.path.join(kaggle_input, "**", "*.pth"), recursive=True)
+            if candidates:
+                # Prefer files matching the resume slug or 'best_model'
+                matched = [c for c in candidates if resume_path in c or "best_model" in c]
+                resume_path = matched[0] if matched else candidates[0]
+                print(f"[INFO] Found checkpoint: {resume_path}")
+            else:
+                print(f"[WARN] No .pt/.pth checkpoint found in {kaggle_input}, training from scratch.")
+                resume_path = None
+
+    if resume_path and os.path.isfile(resume_path):
+        print(f"[INFO] Resuming from checkpoint: {resume_path}")
+        checkpoint = torch.load(resume_path, map_location=device)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        start_epoch = checkpoint.get("epoch", 0) + 1
+        best_val_loss = checkpoint.get("val_metrics", {}).get("loss", float("inf"))
+        print(f"[INFO] Resumed at epoch {start_epoch}, best_val_loss={best_val_loss:.4f}")
+    else:
+        best_val_loss = float("inf")
+
     # ---- Early Stopping ----
     early_stop = EarlyStopping(patience=args.patience)
 
@@ -540,11 +584,11 @@ def main():
     print("\n" + "=" * 72)
     print("  Training Preprocessing System")
     print(f"  Loss = α·(L_D + λ·L_R) + L_Acc   |  α={args.alpha}, λ={args.lam}")
+    if start_epoch > 1:
+        print(f"  Resuming from epoch {start_epoch}")
     print("=" * 72 + "\n")
 
-    best_val_loss = float("inf")
-
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(start_epoch, args.epochs + 1):
         t0 = time.time()
 
         # ---- Train ----
