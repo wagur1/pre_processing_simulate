@@ -112,14 +112,14 @@ def prepare_clip_for_analyzer(
     OR we take the original clip and replace the last frame with the
     reconstructed one.
 
-    Strategy used here: replace the middle frame (for T=3, index 1) with recon,
-    keep the rest. This preserves real temporal context from the clip while 
-    reflecting the preprocessing on the current frame.
+    Strategy used here: replace last frame with recon, keep the rest.
+    This preserves real temporal context from the clip while reflecting
+    the preprocessing on the current frame.
     """
     B, T, C, H, W = clip.shape
     # Clone to avoid in-place modifications
     analyzer_clip = clip.clone()
-    analyzer_clip[:, 1] = recon  # replace middle frame with reconstruction
+    analyzer_clip[:, -1] = recon  # replace last frame with reconstruction
     # (B, T, C, H, W) → (B, C, T, H, W)  — permute for 3-D conv backbone
     return analyzer_clip.permute(0, 2, 1, 3, 4)
 
@@ -165,8 +165,8 @@ def train_one_epoch(
         # ---- Forward through Preprocessing System ----
         enhanced, recon, rate = model(clip)  # enhanced, recon: (B,3,H,W); rate: scalar
 
-        # Current frame = middle frame of the original clip (ground truth for T=3)
-        original_frame = clip[:, 1]  # (B, C, H, W)
+        # Current frame = last frame of the original clip (ground truth)
+        original_frame = clip[:, -1]  # (B, C, H, W)
 
         # ── L_D: distortion loss (MSE between original and reconstructed) ──
         loss_distortion = mse_fn(recon, original_frame)
@@ -251,7 +251,7 @@ def validate(
         labels = labels.to(device)
 
         enhanced, recon, rate = model(clip, fq=40.0)  # fixed fq for eval
-        original_frame = clip[:, 1]
+        original_frame = clip[:, -1]
 
         loss_distortion = mse_fn(recon, original_frame)
         loss_rate = rate
@@ -386,7 +386,8 @@ def main():
         help="Limit number of dataset samples (useful for quick testing)",
     )
     # ---- Training hyperparameters ----
-    parser.add_argument("--num-frames", type=int, default=3, help="Frames per clip")
+    parser.add_argument("--num-frames", type=int, default=8,
+                        help="Temporal depth (consecutive frames per clip)")
     parser.add_argument("--frame-stride", type=int, default=2,
                         help="Stride between sampled frames")
     parser.add_argument("--frame-size", type=int, default=224,
@@ -406,8 +407,6 @@ def main():
                         help="Directory to save model checkpoints")
     parser.add_argument("--analyzer-weights", type=str, default=None,
                         help="Optional path to custom analyzer checkpoint")
-    parser.add_argument("--codec-weights", type=str, default=None,
-                        help="Path to pre-trained codec weights. If provided, Codec will be frozen.")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--resume",
@@ -534,19 +533,8 @@ def main():
     assert trainable_analyzer == 0, "Analyzer must have 0 trainable parameters!"
     print(f"[INFO] Analyzer loaded and frozen (0/{sum(1 for _ in analyzer.parameters())} params trainable)")
 
-    # ---- Handle Codec Freezing ----
-    if args.codec_weights:
-        print(f"[INFO] Loading and freezing Virtual Codec from {args.codec_weights}...")
-        codec_ckpt = torch.load(args.codec_weights, map_location=device)
-        model.codec.load_state_dict(codec_ckpt["codec_state_dict"])
-        for param in model.codec.parameters():
-            param.requires_grad = False
-        print("[INFO] Virtual Codec frozen.")
-    else:
-        print("[WARN] No codec-weights provided. Virtual Codec is training from scratch!")
-
-    # ---- Optimizer: ONLY trainable weights ----
-    optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr)
+    # ---- Optimizer: ONLY preprocessor + codec weights ----
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     print(f"[INFO] Adam optimizer — lr={args.lr}, "
           f"trainable params: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
 

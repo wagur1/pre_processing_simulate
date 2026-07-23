@@ -57,7 +57,7 @@ class TemporalBranch(nn.Module):
     Output: (B, 3, H, W)     — single enhanced frame
     """
 
-    def __init__(self, num_frames: int = 3, base_channels: int = 64):
+    def __init__(self, num_frames: int = 8, base_channels: int = 64):
         super().__init__()
         in_ch = num_frames * 3  # T × RGB
 
@@ -125,7 +125,7 @@ class Preprocessor(nn.Module):
     Output: (B, 3, H, W)      — the enhanced current frame
     """
 
-    def __init__(self, num_frames: int = 3, base_channels: int = 64):
+    def __init__(self, num_frames: int = 8, base_channels: int = 64):
         super().__init__()
         self.temporal = TemporalBranch(num_frames, base_channels)
         self.spatial = SpatialBranch(base_channels)
@@ -139,8 +139,8 @@ class Preprocessor(nn.Module):
         """
         B, T, C, H, W = clip.shape
 
-        # Current frame = middle frame in the temporal window (index 1 for T=3)
-        current_frame = clip[:, 1]  # (B, C, H, W)
+        # Current frame = last frame in the temporal window
+        current_frame = clip[:, -1]  # (B, C, H, W)
 
         # Temporal branch: stack all frames along the channel dim
         stacked = clip.view(B, T * C, H, W)  # (B, T*C, H, W)
@@ -329,7 +329,7 @@ class PreprocessingSystem(nn.Module):
     externally in the training loop).
     """
 
-    def __init__(self, num_frames: int = 3, base_channels: int = 64,
+    def __init__(self, num_frames: int = 8, base_channels: int = 64,
                  latent_channels: int = 48):
         super().__init__()
         self.preprocessor = Preprocessor(num_frames, base_channels)
