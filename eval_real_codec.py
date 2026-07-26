@@ -183,7 +183,8 @@ def main():
     # Load Dataset (T=3)
     _, test_ds, num_classes = build_kaggle_kinetics400_splits(
         os.path.dirname(args.test_dir), # Not perfectly generic, but works for the current split structure
-        args.test_dir
+        args.test_dir,
+        num_frames=3,
     )
     
     if args.limit:
