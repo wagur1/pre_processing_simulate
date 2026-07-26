@@ -19,6 +19,7 @@ from typing import Tuple
 
 import cv2
 import torch
+import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
