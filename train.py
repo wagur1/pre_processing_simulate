@@ -182,8 +182,14 @@ def train_one_epoch(
         clip = clip.to(device)
         labels = labels.to(device)
 
-        # ---- Forward through Preprocessing System ----
-        enhanced, recon, rate = model(clip)  # enhanced, recon: (B,3,H,W); rate: scalar
+        # 1. Forward through Preprocessing System
+        enhanced, recon, rate = model(clip)
+        
+        # If DataParallel is used, rate might be an array of scalars (one per GPU)
+        if rate.dim() > 0:
+            rate = rate.mean()
+
+        # 2. Build 3-D clip for the frozen Analyzer
 
         # Current frame = middle frame of the original clip (ground truth for T=3)
         original_frame = clip[:, 1]  # (B, C, H, W)
@@ -272,6 +278,11 @@ def validate(
         labels = labels.to(device)
 
         enhanced, recon, rate = model(clip, fq=40.0)  # fixed fq for eval
+        
+        # If DataParallel is used, rate might be an array of scalars (one per GPU)
+        if rate.dim() > 0:
+            rate = rate.mean()
+
         original_frame = clip[:, 7]
 
         loss_distortion = mse_fn(recon, original_frame)
@@ -566,11 +577,20 @@ def main():
         param.requires_grad = False
     model.codec.eval()
 
+    # Wrap model with DataParallel if multiple GPUs are available
+    if torch.cuda.device_count() > 1:
+        print(f"[INFO] Using {torch.cuda.device_count()} GPUs with DataParallel for PreprocessingSystem!")
+        model = nn.DataParallel(model)
+
     analyzer = load_analyzer(
         num_classes=num_classes,
         device=device,
         weights_path=args.analyzer_weights,
     )
+    
+    if torch.cuda.device_count() > 1:
+        print(f"[INFO] Using {torch.cuda.device_count()} GPUs with DataParallel for Analyzer!")
+        analyzer = nn.DataParallel(analyzer)
 
     # Verify analyzer is frozen
     trainable_analyzer = sum(p.requires_grad for p in analyzer.parameters())
@@ -664,9 +684,10 @@ def main():
         if val_metrics["loss"] < best_val_loss:
             best_val_loss = val_metrics["loss"]
             ckpt_path = os.path.join(args.save_dir, "best_model.pt")
+            model_to_save = model.module if isinstance(model, nn.DataParallel) else model
             torch.save({
                 "epoch": epoch,
-                "model_state_dict": model.state_dict(),
+                "model_state_dict": model_to_save.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
                 "val_metrics": val_metrics,
             }, ckpt_path)
