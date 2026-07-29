@@ -277,7 +277,7 @@ def validate(
         clip = clip.to(device)
         labels = labels.to(device)
 
-        enhanced, recon, rate = model(clip, fq=40.0)  # fixed fq for eval
+        enhanced, recon, rate = model(clip, 40.0)  # fixed fq for eval
         
         # If DataParallel is used, rate might be an array of scalars (one per GPU)
         if rate.dim() > 0:

@@ -25,7 +25,7 @@ from tqdm import tqdm
 
 from dataset import build_kaggle_kinetics400_splits
 from model import Preprocessor
-from train import load_analyzer
+from train import load_analyzer, Kinetics400Normalize
 from kaggle_config import is_kaggle
 
 def run_ffmpeg(input_path: str, output_path: str, codec: str, qp: int) -> int:
