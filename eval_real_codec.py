@@ -111,7 +111,7 @@ def evaluate_qps(
             B, T, C, H, W = clip.shape
             
             # 1. Baseline: Compress original middle frame
-            original_frames = clip[:, 1]
+            original_frames = clip[:, 7]
             
             # 2. Proposed: Preprocess first
             enhanced_frames = preprocessor(clip)
@@ -126,8 +126,8 @@ def evaluate_qps(
                     dec_base, bpp_base = compress_and_decode(orig_f, codec, qp, temp_dir)
                     # Prepare 3D input for analyzer (B=1, C, T, H, W)
                     base_clip = clip[b_idx].clone()
-                    base_clip[1] = dec_base
-                    base_input = base_clip.permute(1, 0, 2, 3).unsqueeze(0)
+                    base_clip[7] = dec_base
+                    base_input = normalize(base_clip.permute(1, 0, 2, 3).unsqueeze(0))
                     
                     logits_base = analyzer(base_input)
                     pred_base = logits_base.argmax(dim=1)
@@ -140,8 +140,8 @@ def evaluate_qps(
                     # --- Proposed ---
                     dec_enh, bpp_enh = compress_and_decode(enh_f, codec, qp, temp_dir)
                     enh_clip = clip[b_idx].clone()
-                    enh_clip[1] = dec_enh
-                    enh_input = enh_clip.permute(1, 0, 2, 3).unsqueeze(0)
+                    enh_clip[7] = dec_enh
+                    enh_input = normalize(enh_clip.permute(1, 0, 2, 3).unsqueeze(0))
                     
                     logits_enh = analyzer(enh_input)
                     pred_enh = logits_enh.argmax(dim=1)
@@ -180,11 +180,11 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[INFO] Using device: {device}")
 
-    # Load Dataset (T=3)
+    # Load Dataset (T=16)
     _, test_ds, num_classes = build_kaggle_kinetics400_splits(
-        os.path.dirname(args.test_dir), # Not perfectly generic, but works for the current split structure
+        os.path.dirname(args.test_dir), 
         args.test_dir,
-        num_frames=3,
+        num_frames=16,
     )
     
     if args.limit:
@@ -193,11 +193,12 @@ def main():
         
     test_loader = DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, num_workers=2)
 
-    # Load Analyzer
+    # Load Analyzer and Normalizer
     analyzer = load_analyzer(num_classes=num_classes, device=device)
+    normalize = Kinetics400Normalize().to(device)
 
     # Load Preprocessor
-    preprocessor = Preprocessor(num_frames=3, base_channels=64).to(device)
+    preprocessor = Preprocessor(num_frames=16, base_channels=64).to(device)
     ckpt = torch.load(args.preprocessor_weights, map_location=device)
     
     # We trained `PreprocessingSystem`, so we need to extract preprocessor weights

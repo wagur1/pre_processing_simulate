@@ -97,6 +97,26 @@ def load_analyzer(
     return analyzer.to(device)
 
 
+    return analyzer.to(device)
+
+
+# ======================================================================== #
+#                        Kinetics-400 Normalization                        #
+# ======================================================================== #
+
+class Kinetics400Normalize(nn.Module):
+    """Normalize (B, C, T, H, W) tensor using Kinetics-400 mean & std."""
+    def __init__(self):
+        super().__init__()
+        mean = torch.tensor([0.43216, 0.394666, 0.37645]).view(1, 3, 1, 1, 1)
+        std = torch.tensor([0.22803, 0.22145, 0.216989]).view(1, 3, 1, 1, 1)
+        self.register_buffer("mean", mean)
+        self.register_buffer("std", std)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return (x - self.mean) / self.std
+
+
 # ======================================================================== #
 #               Prepare clip for the 3-D Analyzer                          #
 # ======================================================================== #
@@ -112,14 +132,14 @@ def prepare_clip_for_analyzer(
     OR we take the original clip and replace the last frame with the
     reconstructed one.
 
-    Strategy used here: replace the middle frame (for T=3, index 1) with recon,
+    Strategy used here: replace the middle frame (for T=16, index 7) with recon,
     keep the rest. This preserves real temporal context from the clip while 
     reflecting the preprocessing on the current frame.
     """
     B, T, C, H, W = clip.shape
     # Clone to avoid in-place modifications
     analyzer_clip = clip.clone()
-    analyzer_clip[:, 1] = recon  # replace middle frame with reconstruction
+    analyzer_clip[:, 7] = recon  # replace middle frame with reconstruction
     # (B, T, C, H, W) → (B, C, T, H, W)  — permute for 3-D conv backbone
     return analyzer_clip.permute(0, 2, 1, 3, 4)
 
@@ -238,6 +258,7 @@ def validate(
 
     mse_fn = nn.MSELoss()
     ce_fn = nn.CrossEntropyLoss()
+    normalize = Kinetics400Normalize().to(device)
 
     total_loss = 0.0
     total_ld = 0.0
@@ -251,12 +272,13 @@ def validate(
         labels = labels.to(device)
 
         enhanced, recon, rate = model(clip, fq=40.0)  # fixed fq for eval
-        original_frame = clip[:, 1]
+        original_frame = clip[:, 7]
 
         loss_distortion = mse_fn(recon, original_frame)
         loss_rate = rate
 
         analyzer_input = prepare_clip_for_analyzer(recon, clip)
+        analyzer_input = normalize(analyzer_input)
         logits = analyzer(analyzer_input)
         loss_accuracy = ce_fn(logits, labels)
 
@@ -386,7 +408,7 @@ def main():
         help="Limit number of dataset samples (useful for quick testing)",
     )
     # ---- Training hyperparameters ----
-    parser.add_argument("--num-frames", type=int, default=3, help="Frames per clip")
+    parser.add_argument("--num-frames", type=int, default=16, help="Frames per clip")
     parser.add_argument("--frame-stride", type=int, default=2,
                         help="Stride between sampled frames")
     parser.add_argument("--frame-size", type=int, default=224,
@@ -406,8 +428,10 @@ def main():
                         help="Directory to save model checkpoints")
     parser.add_argument("--analyzer-weights", type=str, default=None,
                         help="Optional path to custom analyzer checkpoint")
+    parser.add_argument("--codec-type", type=str, choices=["virtual", "compressai"], default="virtual",
+                        help="Which codec to use (virtual or compressai)")
     parser.add_argument("--codec-weights", type=str, default=None,
-                        help="Path to pre-trained codec weights. If provided, Codec will be frozen.")
+                        help="Path to pretrained virtual codec weights. Ignored if codec-type is compressai.")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--resume",
@@ -519,9 +543,28 @@ def main():
     # ---- Models ----
     model = PreprocessingSystem(
         num_frames=args.num_frames,
+        codec_type=args.codec_type,
         base_channels=64,
         latent_channels=48,
     ).to(device)
+    
+    # Load VirtualCodec weights if selected and provided
+    if args.codec_type == "virtual":
+        if args.codec_weights and os.path.isfile(args.codec_weights):
+            print(f"[INFO] Loading and freezing Virtual Codec from {args.codec_weights}...")
+            ckpt = torch.load(args.codec_weights, map_location=device)
+            if "codec_state_dict" in ckpt:
+                model.codec.load_state_dict(ckpt["codec_state_dict"])
+            else:
+                model.codec.load_state_dict(ckpt)
+            print("[INFO] Virtual Codec frozen.")
+        else:
+            print("[WARNING] Training with randomly initialized Virtual Codec!")
+
+    # ALWAYS Freeze the codec (Virtual or CompressAI) during main training
+    for param in model.codec.parameters():
+        param.requires_grad = False
+    model.codec.eval()
 
     analyzer = load_analyzer(
         num_classes=num_classes,
@@ -533,17 +576,6 @@ def main():
     trainable_analyzer = sum(p.requires_grad for p in analyzer.parameters())
     assert trainable_analyzer == 0, "Analyzer must have 0 trainable parameters!"
     print(f"[INFO] Analyzer loaded and frozen (0/{sum(1 for _ in analyzer.parameters())} params trainable)")
-
-    # ---- Handle Codec Freezing ----
-    if args.codec_weights:
-        print(f"[INFO] Loading and freezing Virtual Codec from {args.codec_weights}...")
-        codec_ckpt = torch.load(args.codec_weights, map_location=device)
-        model.codec.load_state_dict(codec_ckpt["codec_state_dict"])
-        for param in model.codec.parameters():
-            param.requires_grad = False
-        print("[INFO] Virtual Codec frozen.")
-    else:
-        print("[WARN] No codec-weights provided. Virtual Codec is training from scratch!")
 
     # ---- Optimizer: ONLY trainable weights ----
     optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr)

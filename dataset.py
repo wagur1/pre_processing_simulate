@@ -58,7 +58,7 @@ class HFKinetics400Dataset(Dataset):
     def __init__(
         self,
         hf_dataset,
-        num_frames: int = 3,
+        num_frames: int = 16,
         frame_stride: int = 2,
         frame_size: Tuple[int, int] = (224, 224),
         augment: bool = False,
@@ -240,7 +240,7 @@ class GOT10kDataset(Dataset):
     def __init__(
         self,
         root_dir: str,
-        num_frames: int = 3,
+        num_frames: int = 16,
         frame_stride: int = 2,
         frame_size: Tuple[int, int] = (224, 224),
         augment: bool = False,
@@ -442,7 +442,7 @@ def build_splits_from_dataset(
 
 def build_kinetics400_splits(
     split: str = "validation",
-    num_frames: int = 3,
+    num_frames: int = 16,
     frame_stride: int = 2,
     frame_size: Tuple[int, int] = (224, 224),
     train_ratio: float = 0.8,
@@ -511,7 +511,7 @@ def build_kinetics400_splits(
 def build_got10k_train_test(
     train_dir: str,
     test_dir: str,
-    num_frames: int = 3,
+    num_frames: int = 16,
     frame_stride: int = 2,
     frame_size: Tuple[int, int] = (224, 224),
     num_pseudo_classes: int = 20,
@@ -589,7 +589,7 @@ class KaggleKinetics400Dataset(Dataset):
     def __init__(
         self,
         root_dir: str,
-        num_frames: int = 3,
+        num_frames: int = 16,
         frame_stride: int = 2,
         frame_size: Tuple[int, int] = (224, 224),
         augment: bool = False,
@@ -790,7 +790,7 @@ class CSVKinetics400Dataset(Dataset):
         self,
         csv_path: str,
         split: Optional[str] = None,
-        num_frames: int = 3,
+        num_frames: int = 16,
         frame_stride: int = 2,
         frame_size: Tuple[int, int] = (224, 224),
         augment: bool = False,
@@ -1113,7 +1113,7 @@ def _find_got10k_subdir(base_path: str, target: str) -> Optional[str]:
 
 def build_kaggle_got10k_train_test(
     kaggle_slug: str = "got10k",
-    num_frames: int = 8,
+    num_frames: int = 16,
     frame_stride: int = 2,
     frame_size: Tuple[int, int] = (224, 224),
     num_pseudo_classes: int = 20,
@@ -1218,7 +1218,7 @@ def _find_video_folder(base_path: str) -> Optional[str]:
 def build_kaggle_kinetics400_splits(
     kaggle_slug: str = "kinetics-400",
     split: Optional[str] = None,
-    num_frames: int = 8,
+    num_frames: int = 16,
     frame_stride: int = 2,
     frame_size: Tuple[int, int] = (224, 224),
     train_ratio: float = 0.8,

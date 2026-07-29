@@ -125,7 +125,7 @@ class Preprocessor(nn.Module):
     Output: (B, 3, H, W)      — the enhanced current frame
     """
 
-    def __init__(self, num_frames: int = 3, base_channels: int = 64):
+    def __init__(self, num_frames: int = 16, base_channels: int = 64):
         super().__init__()
         self.temporal = TemporalBranch(num_frames, base_channels)
         self.spatial = SpatialBranch(base_channels)
@@ -139,8 +139,8 @@ class Preprocessor(nn.Module):
         """
         B, T, C, H, W = clip.shape
 
-        # Current frame = middle frame in the temporal window (index 1 for T=3)
-        current_frame = clip[:, 1]  # (B, C, H, W)
+        # Current frame = middle frame in the temporal window (index 7 for T=16)
+        current_frame = clip[:, 7]  # (B, C, H, W)
 
         # Temporal branch: stack all frames along the channel dim
         stacked = clip.view(B, T * C, H, W)  # (B, T*C, H, W)
@@ -318,22 +318,65 @@ class VirtualCodec(nn.Module):
 
 
 # ======================================================================== #
+#                          CompressAI Codec                                #
+# ======================================================================== #
+
+class CompressAICodec(nn.Module):
+    """Wrapper for a pre-trained learned image compression model from CompressAI.
+    """
+    def __init__(self, quality: int = 3):
+        super().__init__()
+        try:
+            from compressai.zoo import bmshj2018_factorized
+        except ImportError:
+            raise ImportError("Please install compressai: !pip install compressai")
+        
+        # Load pre-trained model
+        self.model = bmshj2018_factorized(quality=quality, pretrained=True)
+        self.model.eval()
+        
+        # Freeze all weights
+        for param in self.model.parameters():
+            param.requires_grad = False
+
+    def forward(self, x: torch.Tensor, fq: float | None = None) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        fq is ignored because CompressAI models operate at fixed quality levels.
+        """
+        out = self.model(x)
+        x_recon = out['x_hat'].clamp(0, 1)
+        
+        # Estimate BPP
+        N, _, H, W = x.size()
+        num_pixels = N * H * W
+        bpp = sum(
+            (torch.log(likelihoods).sum() / (-math.log(2) * num_pixels))
+            for likelihoods in out['likelihoods'].values()
+        )
+        return x_recon, bpp
+
+
+# ======================================================================== #
 #                   Combined Forward Convenience                           #
 # ======================================================================== #
 
 class PreprocessingSystem(nn.Module):
-    """End-to-end wrapper: Preprocessor → VirtualCodec.
+    """End-to-end wrapper: Preprocessor → VirtualCodec/CompressAICodec.
 
     This is the full trainable system.  The downstream analyzer is *not*
     part of this module (its weights are frozen and it is called
     externally in the training loop).
     """
 
-    def __init__(self, num_frames: int = 3, base_channels: int = 64,
-                 latent_channels: int = 48):
+    def __init__(self, num_frames: int = 16, base_channels: int = 64,
+                 latent_channels: int = 48, codec_type: str = "virtual"):
         super().__init__()
         self.preprocessor = Preprocessor(num_frames, base_channels)
-        self.codec = VirtualCodec(latent_channels)
+        
+        if codec_type == "compressai":
+            self.codec = CompressAICodec(quality=3)
+        else:
+            self.codec = VirtualCodec(latent_channels)
 
     def forward(
         self, clip: torch.Tensor, fq: float | None = None

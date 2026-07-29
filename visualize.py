@@ -65,8 +65,9 @@ def tensor_to_plot_img(tensor):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--test-dir", type=str, required=True)
-    parser.add_argument("--codec-weights", type=str, required=True)
+    parser.add_argument("--codec-weights", type=str, default=None)
     parser.add_argument("--preprocessor-weights", type=str, required=True)
+    parser.add_argument("--codec-type", type=str, choices=["virtual", "compressai"], default="virtual")
     parser.add_argument("--qp", type=int, default=40, help="Quality parameter for H.264")
     parser.add_argument("--output", type=str, default="visualization.png")
     args = parser.parse_args()
@@ -75,7 +76,7 @@ def main():
     print(f"[INFO] Using device: {device}")
 
     # Load dataset
-    _, test_ds, _ = build_kaggle_kinetics400_splits(os.path.dirname(args.test_dir), args.test_dir)
+    _, test_ds, _ = build_kaggle_kinetics400_splits(os.path.dirname(args.test_dir), args.test_dir, num_frames=16)
     
     # Pick a random sample
     idx = random.randint(0, len(test_ds) - 1)
@@ -83,11 +84,16 @@ def main():
     clip = clip.unsqueeze(0).to(device)  # Add batch dim (1, T, C, H, W)
     
     # Load Models
-    codec = VirtualCodec(latent_channels=48).to(device)
-    codec.load_state_dict(torch.load(args.codec_weights, map_location=device)["codec_state_dict"])
+    if args.codec_type == "compressai":
+        from model import CompressAICodec
+        codec = CompressAICodec(quality=3).to(device)
+    else:
+        codec = VirtualCodec(latent_channels=48).to(device)
+        if args.codec_weights:
+            codec.load_state_dict(torch.load(args.codec_weights, map_location=device)["codec_state_dict"])
     codec.eval()
 
-    preprocessor = Preprocessor(num_frames=3, base_channels=64).to(device)
+    preprocessor = Preprocessor(num_frames=16, base_channels=64).to(device)
     ckpt = torch.load(args.preprocessor_weights, map_location=device)
     if "model_state_dict" in ckpt:
         prep_state = {k.replace("preprocessor.", ""): v for k, v in ckpt["model_state_dict"].items() if k.startswith("preprocessor.")}
@@ -97,43 +103,49 @@ def main():
     preprocessor.eval()
 
     # Process Images
-    original_frame = clip[0, 1]  # Middle frame
+    original_frame = clip[0, 7]  # Middle frame of 16
     
     with tempfile.TemporaryDirectory() as temp_dir:
         # 1. H.264 Baseline
         dec_h264 = compress_and_decode_h264(original_frame, args.qp, temp_dir)
         
-        # 2. Virtual Codec
+        # 2. Virtual/CompressAI Codec
         dec_virt, _ = codec(original_frame.unsqueeze(0), fq=float(args.qp))
         dec_virt = dec_virt.squeeze(0)
         
-        # 3. Proposed (Preprocessor + H.264)
+        # 3. Preprocessor Output (Enhanced Frame)
         enhanced_frame = preprocessor(clip)[0]
+        
+        # 4. Proposed (Preprocessor + H.264)
         dec_proposed = compress_and_decode_h264(enhanced_frame, args.qp, temp_dir)
 
     # Visualization
-    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-    fig.suptitle(f"Image Compression Visualization (QP/fq = {args.qp})", fontsize=16, fontweight='bold')
+    fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+    fig.suptitle(f"Image Compression Visualization (QP/fq = {args.qp}, Codec = {args.codec_type})", fontsize=16, fontweight='bold')
 
-    # Original
+    # Row 1: Original, Baseline H.264, Neural Codec
     axes[0, 0].imshow(tensor_to_plot_img(original_frame))
     axes[0, 0].set_title("1. Original Frame", fontsize=12)
     axes[0, 0].axis('off')
 
-    # Baseline H.264
     axes[0, 1].imshow(tensor_to_plot_img(dec_h264))
     axes[0, 1].set_title("2. Baseline H.264", fontsize=12)
     axes[0, 1].axis('off')
 
-    # Virtual Codec
-    axes[1, 0].imshow(tensor_to_plot_img(dec_virt))
-    axes[1, 0].set_title("3. Virtual Codec Decoded", fontsize=12)
+    axes[0, 2].imshow(tensor_to_plot_img(dec_virt))
+    axes[0, 2].set_title(f"3. {args.codec_type.capitalize()} Codec", fontsize=12)
+    axes[0, 2].axis('off')
+
+    # Row 2: Enhanced Frame, Proposed
+    axes[1, 0].imshow(tensor_to_plot_img(enhanced_frame))
+    axes[1, 0].set_title("4. Enhanced Frame (Preprocessor Output)", fontsize=12)
     axes[1, 0].axis('off')
 
-    # Proposed
     axes[1, 1].imshow(tensor_to_plot_img(dec_proposed))
-    axes[1, 1].set_title("4. Proposed (Preprocessor + H.264)", fontsize=12)
+    axes[1, 1].set_title("5. Proposed (Preprocessor + H.264)", fontsize=12)
     axes[1, 1].axis('off')
+    
+    axes[1, 2].axis('off')  # Empty subplot
 
     plt.tight_layout()
     plt.savefig(args.output, dpi=300, bbox_inches='tight')
