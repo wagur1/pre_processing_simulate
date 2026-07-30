@@ -89,6 +89,7 @@ def compress_and_decode(frame_tensor: torch.Tensor, codec: str, qp: int, temp_di
 def evaluate_qps(
     preprocessor: nn.Module,
     analyzer: nn.Module,
+    normalize: nn.Module,
     loader: DataLoader,
     device: torch.device,
     codec: str = "h264",
@@ -215,7 +216,7 @@ def main():
     # Run evaluations
     codecs_to_run = ["h264", "h265"] if args.codec == "both" else [args.codec]
     for c in codecs_to_run:
-        evaluate_qps(preprocessor, analyzer, test_loader, device, codec=c)
+        evaluate_qps(preprocessor, analyzer, normalize, test_loader, device, codec=c)
 
 if __name__ == "__main__":
     main()
