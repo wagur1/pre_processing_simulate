@@ -628,7 +628,8 @@ def main():
     if resume_path and os.path.isfile(resume_path):
         print(f"[INFO] Resuming from checkpoint: {resume_path}")
         checkpoint = torch.load(resume_path, map_location=device)
-        model.load_state_dict(checkpoint["model_state_dict"])
+        model_to_load = model.module if isinstance(model, nn.DataParallel) else model
+        model_to_load.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         start_epoch = checkpoint.get("epoch", 0) + 1
         best_val_loss = checkpoint.get("val_metrics", {}).get("loss", float("inf"))
