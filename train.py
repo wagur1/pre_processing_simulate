@@ -145,6 +145,16 @@ def prepare_clip_for_analyzer(
 
 
 # ======================================================================== #
+#                          Total Variation Loss                            #
+# ======================================================================== #
+
+def tv_loss(x: torch.Tensor) -> torch.Tensor:
+    """Total Variation Loss to enforce spatial smoothness."""
+    tv_h = torch.mean(torch.abs(x[:, :, 1:, :] - x[:, :, :-1, :]))
+    tv_w = torch.mean(torch.abs(x[:, :, :, 1:] - x[:, :, :, :-1]))
+    return tv_h + tv_w
+
+# ======================================================================== #
 #                          Training Loop                                   #
 # ======================================================================== #
 
@@ -156,6 +166,7 @@ def train_one_epoch(
     device: torch.device,
     alpha: float = 10.0,
     lam: float = 0.001,
+    beta: float = 0.5,
 ) -> dict:
     """Run one epoch of training.
 
@@ -174,6 +185,7 @@ def train_one_epoch(
     total_ld = 0.0
     total_lr = 0.0
     total_lacc = 0.0
+    total_ltv = 0.0
     correct = 0
     total = 0
 
@@ -218,8 +230,9 @@ def train_one_epoch(
         loss_accuracy = ce_fn(logits, labels)
 
         # ── Joint loss (paper Eq.) ──
-        # L = α · (L_D + λ · L_R) + L_Acc
-        loss = alpha * (loss_distortion + lam * loss_rate) + loss_accuracy
+        # L = α · (L_D + λ · L_R) + L_Acc + β · L_TV
+        loss_tv = tv_loss(enhanced)
+        loss = alpha * (loss_distortion + lam * loss_rate) + loss_accuracy + beta * loss_tv
 
         # ---- Backward + Step ----
         optimizer.zero_grad()
@@ -231,6 +244,7 @@ def train_one_epoch(
         total_ld += loss_distortion.item()
         total_lr += loss_rate.item()
         total_lacc += loss_accuracy.item()
+        total_ltv += loss_tv.item()
         preds = logits.argmax(dim=1)
         correct += (preds == labels).sum().item()
         total += labels.size(0)
@@ -241,6 +255,7 @@ def train_one_epoch(
         "L_D": total_ld / n,
         "L_R": total_lr / n,
         "L_Acc": total_lacc / n,
+        "L_TV": total_ltv / n,
         "accuracy": correct / max(total, 1),
     }
 
@@ -257,6 +272,7 @@ def validate(
     device: torch.device,
     alpha: float = 10.0,
     lam: float = 0.001,
+    beta: float = 0.5,
 ) -> dict:
     """Evaluate on the mini-test split (no weight updates)."""
     model.eval()
@@ -270,6 +286,7 @@ def validate(
     total_ld = 0.0
     total_lr = 0.0
     total_lacc = 0.0
+    total_ltv = 0.0
     correct = 0
     total = 0
 
@@ -293,12 +310,14 @@ def validate(
         logits = analyzer(analyzer_input)
         loss_accuracy = ce_fn(logits, labels)
 
-        loss = alpha * (loss_distortion + lam * loss_rate) + loss_accuracy
+        loss_tv = tv_loss(enhanced)
+        loss = alpha * (loss_distortion + lam * loss_rate) + loss_accuracy + beta * loss_tv
 
         total_loss += loss.item()
         total_ld += loss_distortion.item()
         total_lr += loss_rate.item()
         total_lacc += loss_accuracy.item()
+        total_ltv += loss_tv.item()
         preds = logits.argmax(dim=1)
         correct += (preds == labels).sum().item()
         total += labels.size(0)
@@ -309,6 +328,7 @@ def validate(
         "L_D": total_ld / n,
         "L_R": total_lr / n,
         "L_Acc": total_lacc / n,
+        "L_TV": total_ltv / n,
         "accuracy": correct / max(total, 1),
     }
 
@@ -433,6 +453,8 @@ def main():
                         help="Weight for distortion + rate term")
     parser.add_argument("--lam", type=float, default=0.001,
                         help="Weight for rate loss within the codec term")
+    parser.add_argument("--beta", type=float, default=0.5,
+                        help="Weight for Total Variation (smoothness) loss")
     parser.add_argument("--patience", type=int, default=7,
                         help="Early stopping patience (epochs)")
     parser.add_argument("--save-dir", type=str, default="./checkpoints",
@@ -648,7 +670,7 @@ def main():
     # ================================================================== #
     print("\n" + "=" * 72)
     print("  Training Preprocessing System")
-    print(f"  Loss = α·(L_D + λ·L_R) + L_Acc   |  α={args.alpha}, λ={args.lam}")
+    print(f"  Loss = α·(L_D + λ·L_R) + L_Acc + β·L_TV   |  α={args.alpha}, λ={args.lam}, β={args.beta}")
     if start_epoch > 1:
         print(f"  Resuming from epoch {start_epoch}")
     print("=" * 72 + "\n")
@@ -659,13 +681,13 @@ def main():
         # ---- Train ----
         train_metrics = train_one_epoch(
             model, analyzer, train_loader, optimizer, device,
-            alpha=args.alpha, lam=args.lam,
+            alpha=args.alpha, lam=args.lam, beta=args.beta,
         )
 
         # ---- Validate ----
         val_metrics = validate(
             model, analyzer, test_loader, device,
-            alpha=args.alpha, lam=args.lam,
+            alpha=args.alpha, lam=args.lam, beta=args.beta,
         )
 
         elapsed = time.time() - t0
@@ -675,10 +697,10 @@ def main():
             f"Epoch {epoch:3d}/{args.epochs} ({elapsed:.1f}s)  │  "
             f"Train  L={train_metrics['loss']:.4f}  L_D={train_metrics['L_D']:.4f}  "
             f"L_R={train_metrics['L_R']:.2f}  L_Acc={train_metrics['L_Acc']:.4f}  "
-            f"Acc={train_metrics['accuracy']:.2%}  │  "
+            f"L_TV={train_metrics['L_TV']:.4f}  Acc={train_metrics['accuracy']:.2%}  │  "
             f"Val  L={val_metrics['loss']:.4f}  L_D={val_metrics['L_D']:.4f}  "
             f"L_R={val_metrics['L_R']:.2f}  L_Acc={val_metrics['L_Acc']:.4f}  "
-            f"Acc={val_metrics['accuracy']:.2%}"
+            f"L_TV={val_metrics['L_TV']:.4f}  Acc={val_metrics['accuracy']:.2%}"
         )
 
         # ---- Save best checkpoint ----
